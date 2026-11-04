@@ -4,7 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Power Quality Analysis Report Generator (Pro)</title>
+  <!-- Chart.js & Daum 우편번호 API -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
   <style>
     :root {
       --primary: #1d4ed8;
@@ -17,7 +19,12 @@
       --warn: #d97706;
       --danger: #dc2626;
     }
-    * { box-sizing: border-box; font-family: "Malgun Gothic", "Apple SD Gothic Neo", -apple-system, BlinkMacSystemFont, sans-serif; }
+    * {
+      box-sizing: border-box;
+      font-family: "Malgun Gothic", "Apple SD Gothic Neo", -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
     body { margin: 0; background-color: #f1f5f9; color: var(--text); }
 
     /* 컨트롤 패널 (인쇄 시 숨김) */
@@ -26,10 +33,15 @@
     .ui-card h2 { margin: 0 0 16px 0; font-size: 18px; color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
     .form-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
     .col-span-2 { grid-column: span 2; }
+    .col-span-3 { grid-column: span 3; }
     .col-span-4 { grid-column: span 4; }
     label { display: block; font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 5px; }
     input, select { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
     input:focus, select:focus { outline: none; border-color: var(--primary); }
+    
+    .addr-group { display: flex; gap: 8px; }
+    .btn-addr { background: #0284c7; color: #fff; border: none; border-radius: 6px; padding: 0 14px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .btn-addr:hover { background: #0369a1; }
 
     .dropzone { border: 2px dashed #64748b; border-radius: 10px; padding: 28px; text-align: center; background: #f8fafc; cursor: pointer; transition: 0.2s; }
     .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: var(--primary-light); }
@@ -50,7 +62,7 @@
       background: #fff;
       width: 210mm;
       min-height: 297mm;
-      padding: 16mm 15mm 18mm 15mm;
+      padding: 15mm 15mm 16mm 15mm;
       margin-bottom: 24px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       position: relative;
@@ -58,7 +70,29 @@
       break-after: page;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
+
+    /* 전 페이지 자동 워터마크 (BSR 비에스알이앤지 엠블럼) */
+    .watermark {
+      position: absolute;
+      top: 52%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 440px;
+      opacity: 0.08;
+      pointer-events: none;
+      z-index: 0;
+      user-select: none;
+    }
+    .page-content {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
     .page-header {
       display: flex; justify-content: space-between; align-items: flex-end;
       border-bottom: 1.5px solid #334155; padding-bottom: 6px; margin-bottom: 16px;
@@ -70,66 +104,74 @@
       display: flex; justify-content: space-between; font-size: 11px; color: #64748b;
     }
 
-    /* 표지 전용 디자인 (첨부 이미지 완벽 재현) */
+    /* 표지 전용 디자인 */
     .cover-title-box { margin: 35px 0 30px 0; text-align: left; border-left: 6px solid #0284c7; padding-left: 18px; }
     .cover-title-box .sub { font-size: 16px; color: #0284c7; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 6px; }
     .cover-title-box h1 { font-size: 34px; margin: 0; color: #0f172a; font-weight: 800; }
 
-    .cover-info-table { width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #cbd5e1; }
+    .cover-info-table { width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #cbd5e1; background: rgba(255,255,255,0.85); }
     .cover-info-table tr { border-bottom: 1px solid #cbd5e1; }
     .cover-info-table th {
-      width: 28%; background: #f8fafc; text-align: left; padding: 13px 16px;
+      width: 28%; background: rgba(248,250,252,0.9); text-align: left; padding: 13px 16px;
       font-size: 14px; color: #0f172a; font-weight: 700; border-right: 1px solid #cbd5e1;
     }
     .cover-info-table th .bar {
       display: inline-block; width: 5px; height: 15px; background: #0284c7;
       vertical-align: middle; margin-right: 10px; border-radius: 1px;
     }
-    .cover-info-table td { padding: 13px 20px; font-size: 14px; color: #334155; background: #fff; }
+    .cover-info-table td { padding: 13px 20px; font-size: 14px; color: #334155; }
 
     /* 섹션 및 표 공통 스타일 */
-    .sec-title { font-size: 18px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0; padding-bottom: 6px; border-bottom: 2px solid #0284c7; }
-    .sub-title { font-size: 14px; font-weight: 700; color: #1e293b; margin: 14px 0 8px 0; display: flex; align-items: center; gap: 6px; }
-    .sub-title::before { content: "▶"; font-size: 11px; color: #0284c7; }
+    .sec-title { font-size: 17px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0; padding-bottom: 6px; border-bottom: 2px solid #0284c7; }
+    .sub-title { font-size: 13.5px; font-weight: 700; color: #1e293b; margin: 12px 0 7px 0; display: flex; align-items: center; gap: 6px; }
+    .sub-title::before { content: "▶"; font-size: 10px; color: #0284c7; }
 
-    .rpt-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11.5px; }
+    .rpt-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11px; background: rgba(255,255,255,0.85); }
     .rpt-table th, .rpt-table td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: center; }
-    .rpt-table th { background: #f1f5f9; font-weight: 700; color: #1e293b; }
+    .rpt-table th { background: rgba(241,245,249,0.95); font-weight: 700; color: #1e293b; }
     .rpt-table td.left { text-align: left; }
 
-    .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #0284c7; padding: 10px 14px; font-size: 11.5px; line-height: 1.6; margin-bottom: 12px; }
-    .warn-box { background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #d97706; padding: 10px 14px; font-size: 11.5px; line-height: 1.6; margin-bottom: 12px; }
-    .note-text { font-size: 10.5px; color: #64748b; line-height: 1.5; margin-top: 4px; }
+    .info-box { background: rgba(248,250,252,0.9); border: 1px solid #e2e8f0; border-left: 4px solid #0284c7; padding: 10px 14px; font-size: 11px; line-height: 1.6; margin-bottom: 12px; }
+    .warn-box { background: rgba(255,251,235,0.9); border: 1px solid #fde68a; border-left: 4px solid #d97706; padding: 10px 14px; font-size: 11px; line-height: 1.6; margin-bottom: 12px; }
+    .note-text { font-size: 10px; color: #64748b; line-height: 1.5; margin-top: 4px; }
 
     .badge-ok { color: var(--ok); font-weight: 800; }
     .badge-warn { color: var(--warn); font-weight: 800; }
     .badge-ng { color: var(--danger); font-weight: 800; }
 
-    /* 경영진 요약 카드 레이아웃 */
-    .exec-grid { display: grid; grid-template-columns: 180px 1fr 1fr; gap: 14px; margin-bottom: 14px; align-items: center; }
+    /* 경영진 요약 카드 레이아웃 (크기 축소 및 삐져나옴 방지) */
+    .exec-grid { display: grid; grid-template-columns: 145px 1fr 1fr; gap: 12px; margin-bottom: 14px; align-items: stretch; }
     .score-card {
-      background: #f59e0b; color: #fff; border-radius: 8px; padding: 24px 16px;
-      text-align: center; height: 210px; display: flex; flex-direction: column; justify-content: center;
+      background: #f59e0b !important; color: #fff !important; border-radius: 8px; padding: 16px 12px;
+      text-align: center; height: 175px; display: flex; flex-direction: column; justify-content: center;
+      box-shadow: inset 0 0 0 1000px #f59e0b;
     }
-    .score-card .lbl { font-size: 13px; font-weight: 700; opacity: 0.95; }
-    .score-card .grade { font-size: 64px; font-weight: 900; line-height: 1.1; margin: 8px 0; }
-    .score-card .pts { font-size: 20px; font-weight: 700; }
+    .score-card .lbl { font-size: 12px; font-weight: 700; color: #fff !important; }
+    .score-card .grade { font-size: 52px; font-weight: 900; line-height: 1.1; margin: 6px 0; color: #fff !important; }
+    .score-card .pts { font-size: 17px; font-weight: 700; color: #fff !important; }
 
-    .chart-box { width: 100%; height: 220px; position: relative; margin: 8px 0 14px 0; border: 1px solid #e2e8f0; padding: 8px; border-radius: 6px; background: #fff; }
-    .chart-box-sm { width: 100%; height: 185px; position: relative; margin: 6px 0 10px 0; border: 1px solid #e2e8f0; padding: 6px; border-radius: 6px; background: #fff; }
-    .vector-row { display: flex; justify-content: space-around; align-items: center; margin: 10px 0; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; }
-    .vector-item { text-align: center; font-size: 12px; font-weight: 700; }
+    .exec-chart-card {
+      height: 175px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px;
+      background: rgba(255,255,255,0.9); position: relative; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
 
-    .toc-list { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .chart-box { width: 100%; height: 195px; position: relative; margin: 6px 0 12px 0; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; background: rgba(255,255,255,0.9); overflow: hidden; }
+    .chart-box-sm { width: 100%; height: 165px; position: relative; margin: 6px 0 10px 0; border: 1px solid #cbd5e1; padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,0.9); overflow: hidden; }
+    .vector-row { display: flex; justify-content: space-around; align-items: center; margin: 8px 0; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: rgba(255,255,255,0.9); }
+    .vector-item { text-align: center; font-size: 11.5px; font-weight: 700; }
+
+    .toc-list { width: 100%; border-collapse: collapse; font-size: 12px; }
     .toc-list td { padding: 7px 10px; border-bottom: 1px dotted #cbd5e1; }
     .toc-list td.num { width: 50px; font-weight: 700; color: #0284c7; }
     .toc-list td.pg { width: 50px; text-align: right; font-weight: 700; color: #475569; }
 
+    @page { size: A4 portrait; margin: 0; }
     @media print {
-      body { background: #fff; }
+      body { background: #fff; margin: 0; }
       .no-print { display: none !important; }
       #report-wrapper { display: block !important; margin: 0; max-width: none; }
-      .page { box-shadow: none; margin: 0; width: 100%; min-height: 297mm; padding: 12mm 14mm; page-break-after: always; }
+      .page { box-shadow: none; margin: 0; width: 210mm; height: 297mm; padding: 14mm 15mm; page-break-after: always; break-after: page; }
     }
   </style>
 </head>
@@ -138,33 +180,42 @@
 <div class="control-panel no-print">
   <div class="ui-card">
     <h2>
-      <span>⚡ 전원 품질 분석 보고서 생성 시스템 (Full-Version)</span>
-      <span style="font-size:13px; font-weight:normal; color:#0284c7;">KEW 6315 / CW500 데이터 완벽 호환</span>
+      <span>⚡ 전원 품질 분석 보고서 생성 시스템 (Pro)</span>
+      <span style="font-size:13px; font-weight:normal; color:#0284c7;">(주)비에스알이앤지 전용 리포트 솔루션</span>
     </h2>
     <div class="form-grid">
       <div>
         <label>보고서 종류 선택 *</label>
         <select id="reportMode">
           <option value="advanced">고급형 보고서 (상세분석 + 전체차트 + 벡터도)</option>
-          <option value="basic">기본형 보고서 (10페이지 핵심 요약본)</option>
+          <option value="basic">기본형 보고서 (핵심 요약본)</option>
         </select>
       </div>
       <div>
         <label>고객명 *</label>
-        <input type="text" id="clientName" value="비에스알이앤지">
+        <input type="text" id="clientName" value="" placeholder="예: (주)원팩토리">
       </div>
       <div>
         <label>측정장소 *</label>
-        <input type="text" id="location" value="회사 916호">
+        <input type="text" id="location" value="" placeholder="예: 본관 지하 전기실 SHV-4">
       </div>
       <div>
         <label>측정자 *</label>
-        <input type="text" id="tester" value="김성기">
+        <input type="text" id="tester" value="" placeholder="예: 홍길동">
+      </div>
+
+      <div class="col-span-2">
+        <label>주소 (카카오 우편번호 검색)</label>
+        <div class="addr-group">
+          <input type="text" id="address" value="" placeholder="주소 검색 버튼을 눌러 선택하세요" readonly onclick="execDaumPostcode()">
+          <button type="button" class="btn-addr" onclick="execDaumPostcode()">🔍 주소 검색</button>
+        </div>
       </div>
       <div class="col-span-2">
-        <label>주소</label>
-        <input type="text" id="address" value="경기 용인시 기흥구 흥덕1로 13">
+        <label>상세 주소</label>
+        <input type="text" id="addressDetail" value="" placeholder="동/호수, 층, 세부 위치 입력">
       </div>
+
       <div>
         <label>결선 방식</label>
         <select id="wiring">
@@ -178,8 +229,13 @@
       </div>
       <div>
         <label>변압기 용량 (kVA) *</label>
-        <input type="number" id="trKva" value="3" step="0.1">
+        <input type="number" id="trKva" value="1000" step="0.1">
       </div>
+      <div>
+        <label>변압기 임피던스 (%Z) *</label>
+        <input type="number" id="zPct" value="5.75" step="0.05">
+      </div>
+
       <div>
         <label>1차측 전압 (V)</label>
         <input type="number" id="v1Nom" value="22900">
@@ -189,24 +245,12 @@
         <input type="number" id="v2Nom" value="380">
       </div>
       <div>
-        <label>변압기 임피던스 (%Z) *</label>
-        <input type="number" id="zPct" value="5.75" step="0.05">
-      </div>
-      <div>
         <label>VT 배율 (PT비)</label>
         <input type="number" id="vtRatio" value="1.00" step="0.01">
       </div>
       <div>
         <label>CT 배율 (CT비)</label>
         <input type="number" id="ctRatio" value="1.00" step="0.01">
-      </div>
-      <div>
-        <label>월 기본요금 (원)</label>
-        <input type="number" id="baseBill" value="1000000">
-      </div>
-      <div>
-        <label>목표 역률 (%)</label>
-        <input type="number" id="targetPf" value="95">
       </div>
     </div>
   </div>
@@ -218,7 +262,7 @@
         여기를 클릭하거나 측정 파일(INPS, INIS, EVTS, INHS 등)을 한꺼번에 드래그하세요
       </div>
       <div style="font-size:12px; color:#64748b;">
-        필수: <b>INPS*.KEW</b> (전력 시계열 데이터) | 선택: INIS*.KEW, EVTS*.KEW, INHS*.KEW, SUPS*.KEW
+        필수: <b>INPS*.KEW</b> (전력 시계열 데이터) | 선택: INIS*.KEW, EVTS*.KEW, INHS*.KEW
       </div>
       <input type="file" id="fileInput" multiple accept=".KEW,.kew,.csv,.txt" style="display:none;">
       <div class="file-badges" id="badgeContainer">
@@ -239,6 +283,44 @@
 <div id="report-wrapper"></div>
 
 <script>
+  // 카카오(Daum) 우편번호 주소 검색 팝업 함수
+  function execDaumPostcode() {
+    new daum.Postcode({
+      oncomplete: function(data) {
+        let addr = data.userSelectedType === 'R' ? data.roadAddress : data.jibunAddress;
+        if (data.buildingName !== '' && data.apartment === 'Y') {
+          addr += ' (' + data.buildingName + ')';
+        }
+        document.getElementById('address').value = addr;
+        document.getElementById('addressDetail').focus();
+      }
+    }).open();
+  }
+
+  // (주)비에스알이앤지 공식 엠블럼 SVG 워터마크 (별도 이미지 파일 불필요, 100% 자동 출력)
+  function getWatermarkHTML() {
+    return `
+      <svg class="watermark" viewBox="0 0 680 140" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="bsrDark" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#002e6d" />
+            <stop offset="100%" stop-color="#0056b3" />
+          </linearGradient>
+        </defs>
+        <!-- B -->
+        <path d="M10 20 H55 C72 20 82 29 82 44 C82 54 75 62 64 65 C77 68 85 77 85 91 C85 108 73 118 54 118 H10 Z M32 40 V57 H50 C57 57 61 53 61 48 C61 43 57 40 50 40 Z M32 76 V98 H52 C60 98 64 94 64 87 C64 80 60 76 52 76 Z" fill="url(#bsrDark)"/>
+        <!-- 번개 심볼 상단 (청록) -->
+        <polygon points="135,5 85,55 152,73 118,45" fill="#00a8cc"/>
+        <!-- 번개 심볼 하단 (네이비) -->
+        <polygon points="75,62 142,80 95,135 110,92" fill="#003882"/>
+        <!-- R -->
+        <path d="M150 20 H198 C216 20 227 30 227 48 C227 62 219 72 205 76 L230 118 H205 L183 79 H172 V118 H150 Z M172 40 V61 H193 C201 61 205 56 205 49 C205 43 201 40 193 40 Z" fill="#00a8cc"/>
+        <!-- (주)비에스알이앤지 텍스트 -->
+        <text x="242" y="96" font-family="'Malgun Gothic', sans-serif" font-size="60" font-weight="900" fill="#5a5c60" letter-spacing="-2">(주)비에스알이앤지</text>
+      </svg>
+    `;
+  }
+
   const uploadedFiles = { inps: null, inis: null, evts: null, inhs: null, inpsName: "INPS0005.KEW", inhsName: "INHS0005.KEW", evtsName: "EVTS0005.KEW" };
   let chartInstances = [];
 
@@ -330,7 +412,7 @@
       return isNaN(v) ? 0 : v * mult;
     };
 
-    const parsed = rows.map(r => {
+    return rows.map(r => {
       const dt = `${r["DATE"].replace(/\//g, '-')} ${r["TIME"]}`;
       const timeShort = r["TIME"].slice(0, 5);
       return {
@@ -373,7 +455,6 @@
         wp: num(r, "INTEG_WP+[Wh]", vt*ct)/1000, wq: Math.abs(num(r, "INTEG_WQc+[varh]", vt*ct))/1000, ws: num(r, "INTEG_WS+[VAh]", vt*ct)/1000
       };
     });
-    return parsed;
   }
 
   function avg(arr) { return arr.reduce((a,b)=>a+b,0) / (arr.length || 1); }
@@ -397,21 +478,22 @@
     }
 
     const mode = document.getElementById('reportMode').value;
-    const client = document.getElementById('clientName').value;
-    const loc = document.getElementById('location').value;
-    const addr = document.getElementById('address').value;
-    const tester = document.getElementById('tester').value;
+    const client = document.getElementById('clientName').value.trim() || "-";
+    const loc = document.getElementById('location').value.trim() || "-";
+    const tester = document.getElementById('tester').value.trim() || "-";
+    const baseAddr = document.getElementById('address').value.trim();
+    const detailAddr = document.getElementById('addressDetail').value.trim();
+    const fullAddr = [baseAddr, detailAddr].filter(Boolean).join(' ') || "-";
+
     const wiring = document.getElementById('wiring').value;
-    const trName = document.getElementById('trName').value;
-    const trKva = parseFloat(document.getElementById('trKva').value) || 3;
+    const trName = document.getElementById('trName').value || "TR-1";
+    const trKva = parseFloat(document.getElementById('trKva').value) || 1000;
     const v1Nom = parseFloat(document.getElementById('v1Nom').value) || 22900;
     const v2Nom = parseFloat(document.getElementById('v2Nom').value) || 380;
     const vPhaseNom = v2Nom / Math.sqrt(3);
     const zPct = parseFloat(document.getElementById('zPct').value) || 5.75;
     const vt = parseFloat(document.getElementById('vtRatio').value) || 1;
     const ct = parseFloat(document.getElementById('ctRatio').value) || 1;
-    const baseBill = parseFloat(document.getElementById('baseBill').value) || 1000000;
-    const targetPf = parseFloat(document.getElementById('targetPf').value) || 95;
 
     const data = parseInps(uploadedFiles.inps, vt, ct);
     const inis = parseInis(uploadedFiles.inis);
@@ -435,8 +517,6 @@
 
     const vDevPhaseMax = ((minVPhase - 220) / 220) * 100;
     const vDevPhaseAvg = ((avgVPhase - 220) / 220) * 100;
-    const vDevLineMax = ((maxVLine - v2Nom) / v2Nom) * 100;
-    const vDevLineAvg = ((avgVLine - v2Nom) / v2Nom) * 100;
 
     const avgA1 = avg(data.map(d=>d.a1)), avgA2 = avg(data.map(d=>d.a2)), avgA3 = avg(data.map(d=>d.a3));
     const avgATot = (avgA1 + avgA2 + avgA3) / 3;
@@ -494,7 +574,7 @@
 
     const pages = [];
 
-    // [페이지 1] 표지 (고급형/기본형 공통 스타일 - 캡처본 완벽 반영)
+    // [페이지 1] 표지
     pages.push(`
       ${renderHeader(mode)}
       <div class="cover-title-box">
@@ -504,7 +584,7 @@
       <table class="cover-info-table">
         <tr><th><span class="bar"></span>고 객 명</th><td>${client}</td></tr>
         <tr><th><span class="bar"></span>측 정 장 소</th><td>${loc}</td></tr>
-        <tr><th><span class="bar"></span>주 소</th><td>${addr}</td></tr>
+        <tr><th><span class="bar"></span>주 소</th><td>${fullAddr}</td></tr>
         <tr><th><span class="bar"></span>계 측 일 시</th><td>${startDt} ~ ${endDt}</td></tr>
         <tr><th><span class="bar"></span>측 정 주 기</th><td>${inis.interval} (공칭주파수 : 60Hz)</td></tr>
         <tr><th><span class="bar"></span>용량 / 전압</th><td>${trKva}kVA, Z=${zPct}%, ${v1Nom}/${v2Nom}V</td></tr>
@@ -525,7 +605,7 @@
       ["04", "측정 장비 정보 및 데이터 유효성 검토"], ["05", "측정결과 요약"], ["06", "경영진 요약 및 AI 분석 의견"],
       ["07", "전압 분석 (상전압 / 선간전압 추이)"], ["08", "전류 분석 (상전류 / 불평형률 추이)"],
       ["09", "역률 분석 및 3상 위상 벡터도"], ["10", "전력 분석 및 변압기 부하율"],
-      ["11", "고조파 분석 (THD / IEEE 519 TDD)"], ["12", "주파수 분석 및 진상콘덴서 용량 계산"],
+      ["11", "고조파 분석 (THD / IEEE 519 TDD)"], ["12", "주파수 분석 및 역률 보상 대책"],
       ["13", "K-Factor 분석 및 EN50160 적합성 평가"], ["14", "종합 판정 요약 및 참조 법령 기준"]
     ];
 
@@ -727,7 +807,7 @@
     `);
 
     if (mode === 'advanced') {
-      // [페이지 6] 경영진 요약 및 AI 분석 의견
+      // [페이지 6] 경영진 요약 및 AI 분석 의견 (레이더 및 바 차트 축소 적용)
       pages.push(`
         ${renderHeader(mode)}
         <h2 class="sec-title">7. 경영진 요약 및 AI 분석 의견</h2>
@@ -737,8 +817,8 @@
             <div class="grade">C</div>
             <div class="pts">75점</div>
           </div>
-          <div class="chart-box-sm" style="height:210px; margin:0;"><canvas id="chartRadar"></canvas></div>
-          <div class="chart-box-sm" style="height:210px; margin:0;"><canvas id="chartPfBar"></canvas></div>
+          <div class="exec-chart-card"><canvas id="chartRadar"></canvas></div>
+          <div class="exec-chart-card"><canvas id="chartPfBar"></canvas></div>
         </div>
 
         <div class="sub-title">핵심 관리 항목 및 AI 진단 요약</div>
@@ -832,9 +912,9 @@
 
         <div class="sub-title">나. 3상 전압·전류 위상 벡터도 (Phasor Diagram)</div>
         <div class="vector-row">
-          <div class="vector-item"><div>최대 부하 시점 벡터도</div><canvas id="vecMax" width="170" height="170"></canvas></div>
-          <div class="vector-item"><div>최소 부하 시점 벡터도</div><canvas id="vecMin" width="170" height="170"></canvas></div>
-          <div class="vector-item"><div>전체 평균 벡터도</div><canvas id="vecAvg" width="170" height="170"></canvas></div>
+          <div class="vector-item"><div>최대 부하 시점 벡터도</div><canvas id="vecMax" width="160" height="160"></canvas></div>
+          <div class="vector-item"><div>최소 부하 시점 벡터도</div><canvas id="vecMin" width="160" height="160"></canvas></div>
+          <div class="vector-item"><div>전체 평균 벡터도</div><canvas id="vecAvg" width="160" height="160"></canvas></div>
         </div>
         <div class="info-box">
           • <b>벡터 및 역률 진단:</b> 기본파 전압-전류 위상차(평균 L1: ${(avg(data.map(d=>d.v1Deg - d.a1Deg))).toFixed(1)}°, L2: ${(avg(data.map(d=>d.v2Deg - d.a2Deg))).toFixed(1)}°, L3: ${(avg(data.map(d=>d.v3Deg - d.a3Deg))).toFixed(1)}°)는 작으나, 전류 고조파(THD ${avgTHDa.toFixed(1)}%)에 의해 총역률(${avgPF.toFixed(2)}%)이 저하되었습니다. 단순 콘덴서 투입 시 공진 우려가 있으므로 직렬 리액터(6%) 또는 고조파 필터 병용이 필요합니다.
@@ -857,7 +937,7 @@
         <div class="chart-box"><canvas id="chartPower"></canvas></div>
         <div class="info-box">
           • <b>변압기 부하율 분석:</b> 설비 용량 ${trKva}kVA 대비 평균 부하율은 <b>${avgLoadPct.toFixed(2)}%</b>, 순간 최대 부하율은 <b>${maxLoadPct.toFixed(2)}%</b>(${maxS.toFixed(2)}kVA)입니다.<br>
-          • 권장 부하율 범위(30~80%) 대비 평균치는 적정 수준이나, 피크 부하 발생 시 정격 용량에 근접/초과하므로 하계·동계 피크 시 모니터링이 요구됩니다.
+          • 권장 부하율 범위(30~80%) 대비 평균치는 적정 수준이나, 피크 부하 발생 시 정격 용량에 근접/초과할 경우 지속적인 모니터링이 요구됩니다.
         </div>
       `);
 
@@ -880,38 +960,27 @@
         </table>
       `);
 
-      // [페이지 12] 주파수 분석 및 진상콘덴서 용량 계산
-      const penaltyPct = avgPF < 92 ? (92 - avgPF) * 0.2 : 0;
-      const rewardPct = targetPf > 92 ? Math.min(targetPf - 92, 3) * 0.2 : 0;
-      const monthlySave = Math.round(baseBill * ((penaltyPct + rewardPct) / 100));
-
+      // [페이지 12] 주파수 분석 및 역률 보상 기술 대책 (월기본요금/목표역률 제거 반영)
       pages.push(`
         ${renderHeader(mode)}
-        <h2 class="sec-title">13. 주파수 분석 및 진상콘덴서 용량 계산</h2>
+        <h2 class="sec-title">13. 주파수 분석 및 역률·고조파 보상 대책</h2>
         <div class="sub-title">가. 전원 주파수 추이 (전기사업법 기준: 60Hz ±0.2Hz)</div>
         <div class="chart-box-sm"><canvas id="chartFreq"></canvas></div>
         <div class="info-box">
           • <b>주파수 분석결과:</b> 평균 ${avgFreq.toFixed(3)}Hz (최소 ${minFreq.toFixed(3)}Hz ~ 최대 ${maxFreq.toFixed(3)}Hz), 최대 편차 ${(maxFreq-60).toFixed(3)}Hz로 허용오차(±0.2Hz) 이내 <b>적합</b>합니다.
         </div>
 
-        <div class="sub-title">나. 역률 개선용 진상콘덴서 용량 및 한전 전기요금 절감액 산출</div>
+        <div class="sub-title">나. 각상 유효/무효전력 및 역률 보상 기술 검토</div>
         <table class="rpt-table">
-          <thead><tr><th>구분</th><th>현재 역률</th><th>목표 역률</th><th>현재 요금 가산율</th><th>개선 후 감면율</th><th>월 기본요금</th><th>월 예상 절감액</th><th>연간 예상 절감액</th></tr></thead>
+          <thead><tr><th>구분</th><th>L1 상</th><th>L2 상</th><th>L3 상</th><th>3상 합계 / 종합</th></tr></thead>
           <tbody>
-            <tr>
-              <td><b>산출 결과</b></td>
-              <td><b class="badge-ng">${avgPF.toFixed(2)}%</b></td>
-              <td><b class="badge-ok">${targetPf.toFixed(2)}%</b></td>
-              <td>+${penaltyPct.toFixed(2)}% 할증</td>
-              <td>-${rewardPct.toFixed(2)}% 감액</td>
-              <td>${baseBill.toLocaleString()}원</td>
-              <td><b>${monthlySave.toLocaleString()}원/월</b></td>
-              <td><b style="color:#0284c7;">${(monthlySave*12).toLocaleString()}원/년</b></td>
-            </tr>
+            <tr><td><b>평균 유효전력 [kW]</b></td><td>${avg(data.map(d=>d.p1)).toFixed(2)}</td><td>${avg(data.map(d=>d.p2)).toFixed(2)}</td><td>${avg(data.map(d=>d.p3)).toFixed(2)}</td><td><b>${avgP.toFixed(2)} kW</b></td></tr>
+            <tr><td><b>평균 무효전력 [kVAR]</b></td><td>${avg(data.map(d=>d.q1)).toFixed(2)}</td><td>${avg(data.map(d=>d.q2)).toFixed(2)}</td><td>${avg(data.map(d=>d.q3)).toFixed(2)}</td><td><b>${avgQ.toFixed(2)} kVAR</b></td></tr>
+            <tr><td><b>측정 총역률 (True PF)</b></td><td>${avg(data.map(d=>d.pf1)).toFixed(2)}%</td><td>${avg(data.map(d=>d.pf2)).toFixed(2)}%</td><td>${avg(data.map(d=>d.pf3)).toFixed(2)}%</td><td><b class="${passPF?'badge-ok':'badge-ng'}">${avgPF.toFixed(2)}%</b></td></tr>
           </tbody>
         </table>
         <div class="warn-box">
-          ※ <b>기술 권고:</b> 현재 계통은 기본파 위상차보다 고조파 왜곡(THDi ${avgTHDa.toFixed(1)}%)에 의한 역률 저하 비중이 높습니다. 일반 진상콘덴서 단독 투입 시 고조파 확대 및 과전류 소손 위험이 있으므로 반드시 <b>6% 직렬 리액터(Detuned Reactor) 부착형 콘덴서</b> 또는 <b>능동형 고조파 필터(AHF)</b>를 검토하십시오.
+          ※ <b>설치 권고사항:</b> 현재 계통은 기본파 위상차보다 고조파 왜곡(THDi ${avgTHDa.toFixed(1)}%)에 의한 왜곡 역률 저하 비중이 높습니다. 일반 진상콘덴서 단독 투입 시 고조파 공진 및 과전류 소손 위험이 있으므로, <b>6% 직렬 리액터(Detuned Reactor) 병설</b> 또는 <b>능동형 고조파 필터(AHF)</b> 적용을 권장합니다.
         </div>
       `);
 
@@ -944,7 +1013,7 @@
       `);
     }
 
-    // [마지막 페이지] 종합 판정 요약 및 참조 법령 기준 (고급형/기본형 공통)
+    // [마지막 페이지] 종합 판정 요약 및 참조 법령 기준
     pages.push(`
       ${renderHeader(mode)}
       <h2 class="sec-title">${mode === 'basic' ? '7.' : '15.'} 종합 판정 요약 및 참조 법령 기준</h2>
@@ -955,7 +1024,7 @@
           <tr><td><b>전압 변화량</b></td><td>${vDevPhaseAvg.toFixed(2)}% (최대 ${Math.abs(vDevPhaseMax).toFixed(2)}%)</td><td>±10.00% 이내</td><td>전기사업법 시행규칙 별표3</td><td><span class="${passV?'badge-ok':'badge-ng'}">${passV?'✔ 적합':'✖ 부적합'}</span></td></tr>
           <tr><td><b>전압 불평형률</b></td><td>${avgUV.toFixed(2)}% (최대 ${maxUV.toFixed(2)}%)</td><td>3.00% 이하</td><td>KEC / 전기안전관리자 직무고시</td><td><span class="${passUV?'badge-ok':'badge-ng'}">${passUV?'✔ 적합':'✖ 부적합'}</span></td></tr>
           <tr><td><b>전류 불평형률</b></td><td>${avgUA.toFixed(2)}% (최대 ${maxUA.toFixed(2)}%)</td><td>30.00% 이하</td><td>전기안전관리자 직무고시 별지 제8호</td><td><span class="${passUA?'badge-ok':'badge-ng'}">${passUA?'✔ 적합':'▲ 요주의'}</span></td></tr>
-          <tr><td><b>역률 (무부하 제외)</b></td><td>${avgPF.toFixed(2)}%</td><td>90.00% 이상 (요금 92%)</td><td>KEC / 한전 전기공급약관 제43조</td><td><span class="${passPF?'badge-ok':'badge-ng'}">${passPF?'✔ 적합':'▲ 요주의'}</span></td></tr>
+          <tr><td><b>역률 (무부하 제외)</b></td><td>${avgPF.toFixed(2)}%</td><td>90.00% 이상</td><td>KEC / 한전 전기공급약관</td><td><span class="${passPF?'badge-ok':'badge-ng'}">${passPF?'✔ 적합':'▲ 요주의'}</span></td></tr>
           <tr><td><b>전압 고조파 (THDu)</b></td><td>평균 ${avgTHDv.toFixed(2)}% (최대 ${maxTHDv.toFixed(2)}%)</td><td>8.00% 이하</td><td>IEEE Std 519-2022 / 직무고시</td><td><span class="${passTHDv?'badge-ok':'badge-ng'}">${passTHDv?'✔ 적합':'✖ 부적합'}</span></td></tr>
           <tr><td><b>전류 고조파 (TDD)</b></td><td>평균 ${avgTDD.toFixed(2)}% (최대 ${maxTDD.toFixed(2)}%)</td><td>SCR별 차등 (5~12%)</td><td>IEEE Std 519-2022 Table 1</td><td><span class="${passTDD?'badge-ok':'badge-ng'}">${passTDD?'✔ 적합':'▲ 요주의'}</span></td></tr>
           <tr><td><b>주파수 편차</b></td><td>${minFreq.toFixed(2)} ~ ${maxFreq.toFixed(2)} Hz</td><td>60Hz ±0.20Hz</td><td>전기사업법 제18조</td><td><span class="${passFreq?'badge-ok':'badge-ng'}">${passFreq?'✔ 적합':'✖ 부적합'}</span></td></tr>
@@ -964,19 +1033,24 @@
 
       <div class="sub-title">단계별 권장 조치사항</div>
       <div class="info-box">
-        <b>1. 즉시 조치 (부하 불평형 해소):</b> 전류 불평형률(${avgUA.toFixed(1)}%) 저감을 위해 L1상에 편중된 단상 부하를 L2, L3상으로 균등 재배치하십시오.<br>
+        <b>1. 즉시 조치 (부하 불평형 해소):</b> 전류 불평형률(${avgUA.toFixed(1)}%) 저감을 위해 특정 상에 편중된 단상 부하를 타 상으로 균등 재배치하십시오.<br>
         <b>2. 단기 조치 (역률 및 고조파 개선):</b> 평균 역률(${avgPF.toFixed(2)}%) 및 전류 고조파(TDD ${maxTDD.toFixed(1)}%) 개선을 위해 직렬 리액터 부착형 콘덴서 또는 고조파 필터 적용을 검토하십시오.<br>
         <b>3. 정기 점검:</b> 부하 설비 증설 또는 계절별 피크 부하 시 연 1회 이상 정기적인 전원품질 계측을 권장합니다.
       </div>
     `);
 
-    // 전체 페이지 조립 및 페이지 번호 부여
+    // 전체 페이지 조립 (모든 페이지 배경에 BSR 워터마크 자동 삽입)
     const wrapper = document.getElementById('report-wrapper');
     const totalPages = pages.length;
+    const watermarkHTML = getWatermarkHTML();
+
     wrapper.innerHTML = pages.map((content, idx) => `
       <div class="page">
-        ${content}
-        ${renderFooter(idx + 1, totalPages, client)}
+        ${watermarkHTML}
+        <div class="page-content">
+          ${content}
+          ${renderFooter(idx + 1, totalPages, client)}
+        </div>
       </div>
     `).join('');
 
@@ -996,39 +1070,60 @@
     const labels = data.map(d => d.timeShort);
     const commonOpts = (yLabel) => ({
       responsive: true, maintainAspectRatio: false, animation: false,
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } },
+      layout: { padding: { top: 4, right: 8, bottom: 2, left: 4 } },
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9.5 } } } },
       scales: {
-        x: { ticks: { font: { size: 9 } } },
-        y: { title: { display: true, text: yLabel, font: { size: 10 } }, ticks: { font: { size: 9 } } }
+        x: { ticks: { font: { size: 8.5 }, maxRotation: 0 } },
+        y: { title: { display: true, text: yLabel, font: { size: 9.5 } }, ticks: { font: { size: 8.5 } } }
       }
     });
 
-    // 1. 레이더 차트
+    // 1. 레이더 차트 (박스 밖으로 삐져나오지 않도록 패딩 및 폰트 축소)
     chartInstances.push(new Chart(document.getElementById('chartRadar'), {
       type: 'radar',
       data: {
-        labels: ['역률', '전압 THD', '전류 TDD', '전압 불평형', '변압기 부하율', '주파수'],
+        labels: ['역률', '전압THD', '전류TDD', '전압불평형', '부하율', '주파수'],
         datasets: [{
           label: '품질 지수',
           data: [passPF?95:45, 98, passTDD?95:35, 98, 90, 100],
-          backgroundColor: 'rgba(2, 132, 199, 0.25)', borderColor: '#0284c7', pointBackgroundColor: '#dc2626'
+          backgroundColor: 'rgba(2, 132, 199, 0.22)', borderColor: '#0284c7', borderWidth: 1.8, pointBackgroundColor: '#dc2626', pointRadius: 2.5
         }]
       },
-      options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { r: { min: 0, max: 100, ticks: { display: false } } }, plugins: { legend: { display: false } } }
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        layout: { padding: 14 },
+        scales: {
+          r: {
+            min: 0, max: 100,
+            ticks: { display: false },
+            pointLabels: { font: { size: 9, weight: 'bold' }, color: '#334155' }
+          }
+        },
+        plugins: { legend: { display: false } }
+      }
     }));
 
-    // 2. 역률 기준 비교 바 차트
+    // 2. 역률 기준 비교 바 차트 (여백 조정 및 라벨 축소)
     chartInstances.push(new Chart(document.getElementById('chartPfBar'), {
       type: 'bar',
       data: {
-        labels: ['현재 역률', '적합 기준(90%)', '한전 기준(92%)', '권장 목표(95%)'],
+        labels: ['현재역률', '기준(90%)', '한전(92%)', '권장(95%)'],
         datasets: [{
           label: '역률 [%]',
           data: [avgPF.toFixed(2), 90, 92, 95],
-          backgroundColor: ['#dc2626', '#64748b', '#d97706', '#16a34a']
+          backgroundColor: ['#dc2626', '#64748b', '#d97706', '#16a34a'],
+          barPercentage: 0.6
         }]
       },
-      options: { responsive: true, maintainAspectRatio: false, animation: false, scales: { y: { min: 75, max: 100 } }, plugins: { legend: { display: false } } }
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        layout: { padding: { top: 8, right: 8, bottom: 4, left: 4 } },
+        scales: {
+          x: { ticks: { font: { size: 9, weight: 'bold' }, maxRotation: 0 } },
+          y: { min: 75, max: 100, ticks: { font: { size: 8.5 } } }
+        },
+        plugins: { legend: { display: false } }
+      }
     }));
 
     // 3. 상전압 추이
@@ -1037,9 +1132,9 @@
       data: {
         labels,
         datasets: [
-          { label: 'L1상 [V]', data: data.map(d=>d.v1), borderColor: '#dc2626', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L2상 [V]', data: data.map(d=>d.v2), borderColor: '#16a34a', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L3상 [V]', data: data.map(d=>d.v3), borderColor: '#2563eb', borderWidth: 1.5, pointRadius: 1 }
+          { label: 'L1상 [V]', data: data.map(d=>d.v1), borderColor: '#dc2626', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L2상 [V]', data: data.map(d=>d.v2), borderColor: '#16a34a', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L3상 [V]', data: data.map(d=>d.v3), borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0.8 }
         ]
       },
       options: commonOpts('상전압 [V]')
@@ -1051,9 +1146,9 @@
       data: {
         labels,
         datasets: [
-          { label: 'L1-L2 [V]', data: data.map(d=>d.vl1), borderColor: '#dc2626', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L2-L3 [V]', data: data.map(d=>d.vl2), borderColor: '#16a34a', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L3-L1 [V]', data: data.map(d=>d.vl3), borderColor: '#2563eb', borderWidth: 1.5, pointRadius: 1 }
+          { label: 'L1-L2 [V]', data: data.map(d=>d.vl1), borderColor: '#dc2626', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L2-L3 [V]', data: data.map(d=>d.vl2), borderColor: '#16a34a', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L3-L1 [V]', data: data.map(d=>d.vl3), borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0.8 }
         ]
       },
       options: commonOpts('선간전압 [V]')
@@ -1065,10 +1160,10 @@
       data: {
         labels,
         datasets: [
-          { label: 'L1상 [A]', data: data.map(d=>d.a1), borderColor: '#dc2626', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L2상 [A]', data: data.map(d=>d.a2), borderColor: '#16a34a', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L3상 [A]', data: data.map(d=>d.a3), borderColor: '#2563eb', borderWidth: 1.5, pointRadius: 1 },
-          { label: '중성선 [A]', data: data.map(d=>d.an), borderColor: '#64748b', borderDash: [4,4], borderWidth: 1.5, pointRadius: 1 }
+          { label: 'L1상 [A]', data: data.map(d=>d.a1), borderColor: '#dc2626', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L2상 [A]', data: data.map(d=>d.a2), borderColor: '#16a34a', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L3상 [A]', data: data.map(d=>d.a3), borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: '중성선 [A]', data: data.map(d=>d.an), borderColor: '#64748b', borderDash: [4,4], borderWidth: 1.4, pointRadius: 0.8 }
         ]
       },
       options: commonOpts('전류 [A]')
@@ -1080,7 +1175,7 @@
       data: {
         labels,
         datasets: [
-          { label: '전류 불평형률 [%]', data: data.map(d=>d.ua), borderColor: '#d97706', backgroundColor: 'rgba(217,119,6,0.1)', fill: true, borderWidth: 1.8, pointRadius: 1 },
+          { label: '전류 불평형률 [%]', data: data.map(d=>d.ua), borderColor: '#d97706', backgroundColor: 'rgba(217,119,6,0.1)', fill: true, borderWidth: 1.6, pointRadius: 0.8 },
           { label: '기준 (30%)', data: data.map(()=>30), borderColor: '#dc2626', borderDash: [5,5], borderWidth: 1.2, pointRadius: 0 }
         ]
       },
@@ -1093,7 +1188,7 @@
       data: {
         labels,
         datasets: [
-          { label: '3상 종합 역률 [%]', data: data.map(d=>d.pfTot), borderColor: '#dc2626', borderWidth: 2, pointRadius: 1.5 },
+          { label: '3상 종합 역률 [%]', data: data.map(d=>d.pfTot), borderColor: '#dc2626', borderWidth: 1.8, pointRadius: 1 },
           { label: '적합 기준 (90%)', data: data.map(()=>90), borderColor: '#2563eb', borderDash: [5,5], borderWidth: 1.2, pointRadius: 0 }
         ]
       },
@@ -1106,9 +1201,9 @@
       data: {
         labels,
         datasets: [
-          { label: '피상전력 [kVA]', data: data.map(d=>d.sTot), borderColor: '#2563eb', borderWidth: 1.5, pointRadius: 1 },
-          { label: '유효전력 [kW]', data: data.map(d=>d.pTot), borderColor: '#dc2626', borderWidth: 1.5, pointRadius: 1 },
-          { label: '무효전력 [kVAR]', data: data.map(d=>d.qTot), borderColor: '#16a34a', borderWidth: 1.5, pointRadius: 1 }
+          { label: '피상전력 [kVA]', data: data.map(d=>d.sTot), borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: '유효전력 [kW]', data: data.map(d=>d.pTot), borderColor: '#dc2626', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: '무효전력 [kVAR]', data: data.map(d=>d.qTot), borderColor: '#16a34a', borderWidth: 1.4, pointRadius: 0.8 }
         ]
       },
       options: commonOpts('전력 [kW/kVAR/kVA]')
@@ -1120,9 +1215,9 @@
       data: {
         labels,
         datasets: [
-          { label: 'L1 전압 THD [%]', data: data.map(d=>d.thdv1), borderColor: '#dc2626', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L2 전압 THD [%]', data: data.map(d=>d.thdv2), borderColor: '#16a34a', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L3 전압 THD [%]', data: data.map(d=>d.thdv3), borderColor: '#2563eb', borderWidth: 1.5, pointRadius: 1 }
+          { label: 'L1 전압 THD [%]', data: data.map(d=>d.thdv1), borderColor: '#dc2626', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L2 전압 THD [%]', data: data.map(d=>d.thdv2), borderColor: '#16a34a', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L3 전압 THD [%]', data: data.map(d=>d.thdv3), borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0.8 }
         ]
       },
       options: commonOpts('전압 THD [%]')
@@ -1134,9 +1229,9 @@
       data: {
         labels,
         datasets: [
-          { label: 'L1 전류 THD [%]', data: data.map(d=>d.thda1), borderColor: '#dc2626', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L2 전류 THD [%]', data: data.map(d=>d.thda2), borderColor: '#16a34a', borderWidth: 1.5, pointRadius: 1 },
-          { label: 'L3 전류 THD [%]', data: data.map(d=>d.thda3), borderColor: '#2563eb', borderWidth: 1.5, pointRadius: 1 }
+          { label: 'L1 전류 THD [%]', data: data.map(d=>d.thda1), borderColor: '#dc2626', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L2 전류 THD [%]', data: data.map(d=>d.thda2), borderColor: '#16a34a', borderWidth: 1.4, pointRadius: 0.8 },
+          { label: 'L3 전류 THD [%]', data: data.map(d=>d.thda3), borderColor: '#2563eb', borderWidth: 1.4, pointRadius: 0.8 }
         ]
       },
       options: commonOpts('전류 THD [%]')
@@ -1147,7 +1242,7 @@
       type: 'line',
       data: {
         labels,
-        datasets: [{ label: '주파수 [Hz]', data: data.map(d=>d.f), borderColor: '#059669', borderWidth: 1.5, pointRadius: 1 }]
+        datasets: [{ label: '주파수 [Hz]', data: data.map(d=>d.f), borderColor: '#059669', borderWidth: 1.4, pointRadius: 0.8 }]
       },
       options: commonOpts('주파수 [Hz]')
     }));
@@ -1162,10 +1257,9 @@
     const c = document.getElementById(canvasId);
     if (!c) return;
     const ctx = c.getContext('2d');
-    const cx = c.width / 2, cy = c.height / 2, r = 62;
+    const cx = c.width / 2, cy = c.height / 2, r = 55;
     ctx.clearRect(0, 0, c.width, c.height);
 
-    // 배경 원 및 십자선
     ctx.strokeStyle = '#cbd5e1'; ctx.lineWidth = 1;
     [r*0.5, r].forEach(rad => { ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI*2); ctx.stroke(); });
     ctx.beginPath(); ctx.moveTo(cx-r-10, cy); ctx.lineTo(cx+r+10, cy); ctx.moveTo(cx, cy-r-10); ctx.lineTo(cx, cy+r+10); ctx.stroke();
@@ -1179,15 +1273,13 @@
       if (dashed) ctx.setLineDash([4, 3]);
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x, y); ctx.stroke();
       ctx.restore();
-      ctx.fillStyle = color; ctx.font = 'bold 10px sans-serif';
-      ctx.fillText(label, x + (x>=cx?4:-16), y + (y>=cy?10:-4));
+      ctx.fillStyle = color; ctx.font = 'bold 9.5px sans-serif';
+      ctx.fillText(label, x + (x>=cx?4:-15), y + (y>=cy?10:-4));
     };
 
-    // 전압 벡터 (실선)
     drawVec(row.v1Deg || 0, r, '#dc2626', 'V1');
     drawVec(row.v2Deg || 120, r, '#16a34a', 'V2');
     drawVec(row.v3Deg || -120, r, '#2563eb', 'V3');
-    // 전류 벡터 (점선)
     drawVec(row.a1Deg || -9, r*0.7, '#f87171', 'A1', true);
     drawVec(row.a2Deg || 105, r*0.55, '#4ade80', 'A2', true);
     drawVec(row.a3Deg || -116, r*0.55, '#60a5fa', 'A3', true);
